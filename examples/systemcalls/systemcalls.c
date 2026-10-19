@@ -1,4 +1,9 @@
 #include "systemcalls.h"
+#include <fcntl.h>
+#include <stdlib.h>
+#include <sys/wait.h>
+#include <sys/types.h>
+#include <unistd.h>
 
 /**
  * @param cmd the command to execute with system()
@@ -16,8 +21,8 @@ bool do_system(const char *cmd)
  *   and return a boolean true if the system() call completed with success
  *   or false() if it returned a failure
 */
-
-    return true;
+    int result = system(cmd);
+    return result == 0;
 }
 
 /**
@@ -47,8 +52,7 @@ bool do_exec(int count, ...)
     command[count] = NULL;
     // this line is to avoid a compile warning before your implementation is complete
     // and may be removed
-    command[count] = command[count];
-
+    va_end(args);
 /*
  * TODO:
  *   Execute a system command by calling fork, execv(),
@@ -58,10 +62,26 @@ bool do_exec(int count, ...)
  *   as second argument to the execv() command.
  *
 */
+    fflush(stdout);
+    int rc = fork();
+    if (rc < 0) { // fork failed; exit
+        fprintf(stderr, "fork failed\n");
+        return false;
+    } else if (rc == 0) { // child (new process)
+        execv(command[0], command);
+        fprintf(stderr, "execv failed\n");
+        exit(1);
+    } 
+    // parent goes down this path (original process)
+    int status;
+    int wc = waitpid(rc, &status, 0);
+    if (wc < 0)
+    {
+        fprintf(stderr, "waitpid failed\n");
+        return false;
+    }
 
-    va_end(args);
-
-    return true;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
 
 /**
@@ -94,6 +114,37 @@ bool do_exec_redirect(const char *outputfile, int count, ...)
 */
 
     va_end(args);
+    fflush(stdout);
+    pid_t rc = fork();
+    if (rc < 0)
+    { // fork failed; exit
+        fprintf(stderr, "fork failed\n");
+        return false;
+    } else if (rc == 0)
+    { // child (new process)
+        int fd = open(outputfile, O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (fd < 0)
+        {
+            fprintf(stderr, "open failed\n");
+            exit(1);
+        }
+        if (dup2(fd, STDOUT_FILENO) < 0)
+        {
+            fprintf(stderr, "dup2 failed\n");
+            exit(1);
+        }
+        close(fd);
+        execv(command[0], command);
+        fprintf(stderr, "execv failed\n");
+        exit(1);
+    }
+    // parent goes down this path (original process)
+    int status;
+    int wc = waitpid(rc, &status, 0);
+    if (wc < 0) {
+        fprintf(stderr, "waitpid failed\n");
+        return false;
+    }
 
-    return true;
+    return WIFEXITED(status) && WEXITSTATUS(status) == 0;
 }
